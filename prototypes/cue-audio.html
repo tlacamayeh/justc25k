@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE: Cue Audio Test</title>
+<style>
+  :root {
+    --bg: #fafaf9; --fg: #1c1917; --muted: #78716c; --line: #e7e5e4;
+    --card: #ffffff; --accent: #0f766e; --accent-fg: #ffffff; --warn: #b45309;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1917; --fg: #f5f5f4; --muted: #a8a29e; --line: #44403c;
+      --card: #292524; --accent: #2dd4bf; --accent-fg: #042f2e; --warn: #fbbf24;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.5 system-ui, sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  h2 { font-size: 1.05rem; margin: 0 0 8px; }
+  p { margin: 0 0 8px; }
+  .muted { color: var(--muted); font-size: .9rem; }
+  .tag { display: inline-block; font-size: .75rem; font-weight: 600; letter-spacing: .04em;
+    color: var(--warn); border: 1px solid var(--warn); border-radius: 4px; padding: 0 6px; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px; margin: 16px 0; }
+  .big { font-size: 2.4rem; font-weight: 700; line-height: 1.1; }
+  .grid { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
+  .grid dt { color: var(--muted); }
+  .grid dd { margin: 0; font-variant-numeric: tabular-nums; }
+  button, select { font: inherit; border-radius: 8px; border: 1px solid var(--line);
+    background: var(--card); color: var(--fg); padding: 10px 14px; }
+  button.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .45; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 12px; }
+  .tabs button[aria-selected="true"] { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  ol { padding-left: 20px; margin: 0 0 8px; }
+  li { margin-bottom: 4px; }
+  #log { font: 12px/1.45 ui-monospace, monospace; max-height: 280px; overflow-y: auto;
+    white-space: pre-wrap; margin: 0; }
+  .late { color: var(--warn); }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th, td { text-align: left; padding: 6px 4px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td select { padding: 6px; width: 100%; }
+  textarea { width: 100%; font: 12px/1.4 ui-monospace, monospace; background: var(--bg);
+    color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <span class="tag">PROTOTYPE · THROWAWAY</span>
+  <h1>Cue Audio Test</h1>
+  <p>Does this phone play the session's Cues reliably while Spotify is playing?
+  This page checks three things:</p>
+  <ol>
+    <li><b>Ducking:</b> do the short cue sounds lower your music and let it come back, instead of pausing it?</li>
+    <li><b>Screen off:</b> do Cues still play after you press the power button?</li>
+    <li><b>App switching:</b> do Cues still play while you're in Spotify?</li>
+  </ol>
+  <p class="muted">Each phase change plays an Announcement (a 1.8 s placeholder sound standing in for the
+  voice), then a Countdown of three soft chimes, one per second, then a Change Beep. The page can play
+  them in three ways; try each one.</p>
+
+  <section>
+    <h2>Guided tests</h2>
+    <div class="tabs" role="tablist" id="tabs"></div>
+    <div id="tabBody"></div>
+  </section>
+
+  <section>
+    <h2>Current state</h2>
+    <div class="big" id="phaseNow">Not started</div>
+    <p class="muted" id="phaseNext">&nbsp;</p>
+    <dl class="grid">
+      <dt>Playback method</dt><dd id="sEngine">–</dd>
+      <dt>Test session</dt><dd id="sSession">–</dd>
+      <dt>Session time</dt><dd id="sClock">–</dd>
+      <dt>Next Cue</dt><dd id="sNextCue">–</dd>
+      <dt>Page visible</dt><dd id="sVisible">–</dd>
+      <dt>Audio engine</dt><dd id="sCtx">–</dd>
+      <dt>Late Cues</dt><dd id="sLate">–</dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2>Free play</h2>
+    <div class="row">
+      <select id="engine">
+        <option value="clips">Method A: sound clips on timers</option>
+        <option value="engineTimers">Method B: audio engine on timers</option>
+        <option value="engineScheduled">Method C: audio engine, all Cues scheduled up front</option>
+      </select>
+      <select id="session">
+        <option value="short">Short test (about 1 min)</option>
+        <option value="long">Long test (about 8 min)</option>
+        <option value="pocket">Pocket test (about 30 min)</option>
+      </select>
+    </div>
+    <div class="row">
+      <button class="primary" id="start">Start session</button>
+      <button id="stop" disabled>Stop</button>
+      <button id="testSounds">Play one cue sequence now</button>
+    </div>
+  </section>
+
+  <section>
+    <h2>What did you hear?</h2>
+    <p class="muted">Fill this in as you go. Nothing is saved: copy the results before closing the page.</p>
+    <table id="answers"></table>
+    <p style="margin-top:12px"><textarea id="notes" rows="3" placeholder="Anything else you noticed"></textarea></p>
+    <div class="row"><button id="makeResults">Show results to copy</button></div>
+    <textarea id="results" rows="10" readonly hidden></textarea>
+  </section>
+
+  <section>
+    <h2>Event log</h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<script>
+// ---------------------------------------------------------------------------
+// Portable module: turns a Session's Phases into a timed list of Cues.
+// Pure, with no DOM. This is the part worth lifting into the real app.
+// ---------------------------------------------------------------------------
+const CueSchedule = (() => {
+  const ANNOUNCE_LEAD = 5;   // the Announcement starts 5 s before a Phase change
+  const COUNTDOWN = [3, 2, 1]; // chimes at T-3, T-2, T-1
+  const START_GAP = 2;       // at Start: Announcement, then the Change Beep after the clip
+
+  function describeDuration(seconds) {
+    if (seconds <= 90) return `${seconds} seconds`;
+    if (seconds % 60 === 0) return `${seconds / 60} minutes`;
+    if (seconds % 30 === 0) return `${Math.floor(seconds / 60)} and a half minutes`;
+    return `${seconds} seconds`;
+  }
+
+  function announce(phase) {
+    return phase ? `${phase.kind}, ${describeDuration(phase.seconds)}` : 'Session complete';
+  }
+
+  // phases: [{ kind: 'Warm-up' | 'Run' | 'Walk' | 'Cool-down', seconds }]
+  // returns { phaseStarts: [s], total: s, cues: [{ at: s, cue, says? }] }, times from Start
+  function build(phases) {
+    const cues = [{ at: 0, cue: 'Announcement', says: announce(phases[0]) },
+                  { at: START_GAP, cue: 'Change Beep' }];
+    const phaseStarts = [];
+    let t = START_GAP;
+    phases.forEach((phase, i) => {
+      phaseStarts.push(t);
+      t += phase.seconds;
+      cues.push({ at: t - ANNOUNCE_LEAD, cue: 'Announcement', says: announce(phases[i + 1]) });
+      COUNTDOWN.forEach(n => cues.push({ at: t - n, cue: 'Countdown chime' }));
+      cues.push({ at: t, cue: 'Change Beep' });
+    });
+    return { phaseStarts, total: t, cues };
+  }
+
+  function phaseAt(schedule, phases, elapsed) {
+    for (let i = phases.length - 1; i >= 0; i--) {
+      if (elapsed >= schedule.phaseStarts[i]) {
+        const end = schedule.phaseStarts[i] + phases[i].seconds;
+        return elapsed >= end ? { done: true } : { index: i, left: end - elapsed };
+      }
+    }
+    return { index: -1, left: schedule.phaseStarts[0] - elapsed };
+  }
+
+  return { build, phaseAt, describeDuration };
+})();
+
+// ---------------------------------------------------------------------------
+// Throwaway page below.
+// ---------------------------------------------------------------------------
+const SESSIONS = {
+  short: { name: 'Short test (about 1 min)', phases: [
+    { kind: 'Warm-up', seconds: 20 }, { kind: 'Run', seconds: 15 },
+    { kind: 'Walk', seconds: 15 }, { kind: 'Cool-down', seconds: 15 } ] },
+  long: { name: 'Long test (about 8 min)', phases: [
+    { kind: 'Warm-up', seconds: 60 }, { kind: 'Run', seconds: 90 }, { kind: 'Walk', seconds: 90 },
+    { kind: 'Run', seconds: 90 }, { kind: 'Walk', seconds: 90 }, { kind: 'Cool-down', seconds: 60 } ] },
+  pocket: { name: 'Pocket test (about 30 min)', phases: [
+    { kind: 'Warm-up', seconds: 300 }, { kind: 'Run', seconds: 300 }, { kind: 'Walk', seconds: 300 },
+    { kind: 'Run', seconds: 300 }, { kind: 'Walk', seconds: 300 }, { kind: 'Cool-down', seconds: 300 } ] },
+};
+const ENGINES = {
+  clips: 'Method A: sound clips on timers',
+  engineTimers: 'Method B: audio engine on timers',
+  engineScheduled: 'Method C: audio engine, scheduled up front',
+};
+
+// --- Sounds, synthesised so the page has no external files -------------------
+const RATE = 44100;
+function synth(seconds, fn) {
+  const n = Math.floor(seconds * RATE), out = new Float32Array(n);
+  for (let i = 0; i < n; i++) out[i] = fn(i / RATE, seconds);
+  return out;
+}
+const env = (t, len, attack = 0.01) => Math.min(1, t / attack) * Math.max(0, 1 - t / len);
+const SOUNDS = {
+  // Placeholder for the spoken Announcement: 1.8 s of voice-like pitched pulses.
+  Announcement: synth(1.8, (t, len) => {
+    const syll = Math.floor(t / 0.3), local = t % 0.3;
+    const f = [220, 260, 200, 240, 210, 190][syll] || 200;
+    const v = Math.min(1, local / 0.02) * Math.max(0, 1 - local / 0.28);
+    const s = Math.sin(2 * Math.PI * f * t) + 0.5 * Math.sin(4 * Math.PI * f * t) + 0.25 * Math.sin(6 * Math.PI * f * t);
+    return 0.35 * v * s * env(t, len + 0.2);
+  }),
+  'Countdown chime': synth(0.4, (t, len) => 0.35 * Math.sin(2 * Math.PI * 880 * t) * Math.exp(-t * 9) * Math.min(1, t / 0.005)),
+  'Change Beep': synth(0.45, (t, len) => 0.45 * Math.sign(Math.sin(2 * Math.PI * 1200 * t)) * 0.6 * env(t, len, 0.005)),
+};
+function toWavUrl(samples) {
+  const buf = new ArrayBuffer(44 + samples.length * 2), v = new DataView(buf);
+  const str = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, RATE, true); v.setUint32(28, RATE * 2, true); v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, samples.length * 2, true);
+  samples.forEach((s, i) => v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, s)) * 0x7fff, true));
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+const WAV_URLS = Object.fromEntries(Object.entries(SOUNDS).map(([k, s]) => [k, toWavUrl(s)]));
+
+let ctx = null, BUFFERS = null;
+function ensureCtx() {
+  if (!ctx) {
+    ctx = new AudioContext();
+    ctx.onstatechange = () => { log(`Audio engine is now "${ctx.state}"`); render(); };
+    BUFFERS = Object.fromEntries(Object.entries(SOUNDS).map(([k, s]) => {
+      const b = ctx.createBuffer(1, s.length, RATE); b.copyToChannel(s, 0); return [k, b];
+    }));
+  }
+  if (ctx.state !== 'running') ctx.resume();
+  return ctx;
+}
+
+// --- Run state --------------------------------------------------------------
+const run = { active: false, engine: null, sessionKey: null, startWall: 0, schedule: null,
+  timers: [], sources: [], firedCount: 0, late: [] };
+const t0 = performance.now();
+
+function startSession() {
+  stopSession(true);
+  const engine = $('engine').value, sessionKey = $('session').value;
+  const phases = SESSIONS[sessionKey].phases, schedule = CueSchedule.build(phases);
+  Object.assign(run, { active: true, engine, sessionKey, schedule, timers: [], sources: [],
+    firedCount: 0, late: [] });
+  if (engine !== 'clips') ensureCtx();
+  run.startWall = Date.now();
+  log(`START ${ENGINES[engine]} · ${SESSIONS[sessionKey].name} · ${schedule.cues.length} Cues over ${schedule.total}s`);
+
+  if (engine === 'engineScheduled') {
+    const base = ctx.currentTime + 0.1;
+    run.ctxBase = base;
+    schedule.cues.forEach(c => {
+      const src = ctx.createBufferSource(); src.buffer = BUFFERS[c.cue]; src.connect(ctx.destination);
+      src.start(base + c.at);
+      src.onended = () => { if (run.active) log(`ended: ${label(c)} (due ${fmt(c.at)}, the page noticed at ${fmt(elapsed())})`); };
+      run.sources.push(src);
+    });
+  } else {
+    schedule.cues.forEach(c => {
+      const due = run.startWall + c.at * 1000;
+      run.timers.push(setTimeout(() => fire(c, due), Math.max(0, due - Date.now())));
+    });
+  }
+  run.timers.push(setTimeout(() => { log('Session finished'); stopSession(true); }, (schedule.total + 1.5) * 1000));
+  render();
+}
+
+function fire(c, due) {
+  const lateBy = (Date.now() - due) / 1000;
+  run.firedCount++;
+  if (lateBy > 0.5) run.late.push(lateBy);
+  play(c.cue, run.engine);
+  log(`played: ${label(c)} at ${fmt(elapsed())}` + (lateBy > 0.5 ? ` · LATE by ${lateBy.toFixed(1)}s` : ''), lateBy > 0.5);
+}
+
+function play(cue, engine) {
+  if (engine === 'clips') { new Audio(WAV_URLS[cue]).play().catch(e => log(`clip failed: ${e.message}`, true)); }
+  else { const c = ensureCtx(), src = c.createBufferSource(); src.buffer = BUFFERS[cue]; src.connect(c.destination); src.start(); }
+}
+
+function stopSession(quiet) {
+  run.timers.forEach(clearTimeout);
+  run.sources.forEach(s => { try { s.onended = null; s.stop(); } catch {} });
+  if (run.active && !quiet) log('Stopped by you');
+  run.active = false; run.timers = []; run.sources = [];
+  render();
+}
+
+function testSequence() {
+  const engine = $('engine').value;
+  if (engine !== 'clips') ensureCtx();
+  log(`One cue sequence via ${ENGINES[engine]}`);
+  [['Announcement', 0], ['Countdown chime', 2], ['Countdown chime', 3], ['Countdown chime', 4], ['Change Beep', 5]]
+    .forEach(([cue, at]) => setTimeout(() => play(cue, engine), at * 1000));
+}
+
+// --- Page helpers -------------------------------------------------------------
+const $ = id => document.getElementById(id);
+const elapsed = () => run.startWall ? (Date.now() - run.startWall) / 1000 : 0;
+const fmt = s => { s = Math.max(0, s); return `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`; };
+const label = c => c.says ? `Announcement "${c.says}"` : c.cue;
+const stamp = () => new Date().toLocaleTimeString([], { hour12: false });
+const lines = [];
+function log(msg, warn) {
+  lines.push(`${stamp()}  ${msg}`);
+  const el = document.createElement('div'); el.textContent = `${stamp()}  ${msg}`;
+  if (warn) el.className = 'late';
+  $('log').prepend(el);
+}
+
+function render() {
+  const phases = run.sessionKey ? SESSIONS[run.sessionKey].phases : null;
+  $('sEngine').textContent = run.engine ? ENGINES[run.engine] : '–';
+  $('sSession').textContent = run.sessionKey ? SESSIONS[run.sessionKey].name : '–';
+  $('sVisible').textContent = document.visibilityState === 'visible' ? 'Yes' : 'No (hidden)';
+  $('sCtx').textContent = ctx ? ctx.state : 'not created yet';
+  $('sLate').textContent = run.engine === 'engineScheduled' ? 'not measurable (the engine plays them itself)'
+    : run.late.length ? `${run.late.length}, worst ${Math.max(...run.late).toFixed(1)}s` : 'none';
+  $('start').disabled = run.active; $('stop').disabled = !run.active;
+  if (!run.active || !phases) {
+    $('phaseNow').textContent = run.startWall ? 'Finished' : 'Not started';
+    $('phaseNext').innerHTML = '&nbsp;'; $('sClock').textContent = '–'; $('sNextCue').textContent = '–';
+    return;
+  }
+  const e = elapsed(), p = CueSchedule.phaseAt(run.schedule, phases, e);
+  if (p.done) { $('phaseNow').textContent = 'Session complete'; $('phaseNext').innerHTML = '&nbsp;'; }
+  else if (p.index < 0) { $('phaseNow').textContent = 'Starting…'; $('phaseNext').textContent = `First: ${phases[0].kind}`; }
+  else {
+    $('phaseNow').textContent = `${phases[p.index].kind} · ${Math.ceil(p.left)}s`;
+    const nx = phases[p.index + 1];
+    $('phaseNext').textContent = nx ? `Next: ${nx.kind}, ${CueSchedule.describeDuration(nx.seconds)}` : 'Last phase';
+  }
+  $('sClock').textContent = `${fmt(e)} of ${fmt(run.schedule.total)}`;
+  const next = run.schedule.cues.find(c => c.at > e);
+  $('sNextCue').textContent = next ? `${label(next)} at ${fmt(next.at)}` : 'none';
+}
+setInterval(() => { if (run.active) render(); }, 250);
+
+document.addEventListener('visibilitychange', () => {
+  log(`Page is now ${document.visibilityState}`);
+  // If the audio engine was paused while hidden, its clock falls behind real time and every later Cue is late by that much.
+  if (document.visibilityState === 'visible' && run.active && run.engine === 'engineScheduled') {
+    const behind = elapsed() - (ctx.currentTime - run.ctxBase);
+    log(`Audio engine clock is ${behind.toFixed(1)}s behind real time` + (behind > 0.5 ? ' · Cues are running LATE' : ' · Cues on time'), behind > 0.5);
+  }
+  render();
+});
+document.addEventListener('freeze', () => log('Chrome froze the page'));
+document.addEventListener('resume', () => log('Chrome unfroze the page'));
+$('start').onclick = startSession;
+$('stop').onclick = () => stopSession(false);
+$('testSounds').onclick = testSequence;
+
+// --- Guided tests -----------------------------------------------------------------
+const TESTS = [
+  { title: '1 · Ducking', session: 'short', steps: [
+      'Start a song in Spotify at normal volume, then come back to this page.',
+      'Keep the screen on, e.g. by tapping it now and then.',
+      'Start one method below and listen through the whole short test (about 1 min).',
+      'Did the music lower during each Cue and come back, or did it pause or stop? Note it in “What did you hear?”.',
+      'Repeat for the other two methods.' ],
+    watch: 'If Spotify pauses and doesn’t resume, that method is ruled out. Music that keeps playing at full volume with the Cues on top is still a pass, as long as you can hear the Cues.' },
+  { title: '2 · Screen off', session: 'long', steps: [
+      'Start Spotify, come back here, and start the long test (about 8 min) with a method that passed test 1.',
+      'Press the power button to turn the screen off, then put the phone in your pocket.',
+      'Count the Change Beeps: there should be 7 in total (one at the start, one at each of the 5 phase changes, one at the end).',
+      'Turn the screen back on and check the event log for LATE Cues.' ],
+    watch: 'For Methods A and B the log shows how late each Cue was. Method C plays Cues on the audio engine’s own clock, so only your ears can tell whether they came on time.' },
+  { title: '3 · App switching', session: 'long', steps: [
+      'Start the long test with a method that passed test 1.',
+      'Switch to Spotify and stay there, skipping a song or two.',
+      'Listen for the Cues, then come back here and check the log.' ],
+    watch: 'If Cues are skipped or come late here, the risk from Q23 is real and the catch-up Announcement is worth building.' },
+  { title: '4 · Pocket (30 min)', session: 'pocket', engineOnly: 'engineScheduled', steps: [
+      'Start Spotify, come back here, and press Start below (Method C, about 30 minutes).',
+      'Lock the screen and put the phone in your pocket. Don’t touch it until the end.',
+      'Count the Change Beeps: there should be 7, about 5 minutes apart. Note roughly when each one came, or if any were missing.',
+      'When it finishes, unlock and check the log: the line “Audio engine clock is … behind real time” says whether the engine kept time.' ],
+    watch: 'This shows whether Android lets the audio engine keep running for a whole real Session. If it does, version 1 can run with the screen off.' },
+];
+let tab = 0;
+function renderTabs() {
+  $('tabs').innerHTML = '';
+  TESTS.forEach((t, i) => {
+    const b = document.createElement('button'); b.textContent = t.title; b.setAttribute('role', 'tab');
+    b.setAttribute('aria-selected', i === tab); b.onclick = () => { tab = i; renderTabs(); };
+    $('tabs').append(b);
+  });
+  const t = TESTS[tab];
+  $('tabBody').innerHTML = `<ol>${t.steps.map(s => `<li>${s}</li>`).join('')}</ol><p class="muted">${t.watch}</p>`;
+  const row = document.createElement('div'); row.className = 'row';
+  Object.entries(ENGINES).filter(([key]) => !t.engineOnly || key === t.engineOnly).forEach(([key, name]) => {
+    const b = document.createElement('button'); b.textContent = `Start: ${name.split(':')[0]}`;
+    b.onclick = () => { $('engine').value = key; $('session').value = t.session; startSession(); };
+    row.append(b);
+  });
+  $('tabBody').append(row);
+}
+renderTabs();
+
+// --- Answers -------------------------------------------------------------------
+const QUESTIONS = ['Music lowered and came back (not paused)', 'All Cues heard with screen off', 'All Cues heard while in Spotify'];
+$('answers').innerHTML = `<tr><th></th>${Object.keys(ENGINES).map(k => `<th>${ENGINES[k].split(':')[0]}</th>`).join('')}</tr>` +
+  QUESTIONS.map((q, qi) => `<tr><td>${q}</td>${Object.keys(ENGINES).map(k =>
+    `<td><select id="a-${qi}-${k}"><option>Not tried</option><option>Yes</option><option>Partly</option><option>No</option></select></td>`).join('')}</tr>`).join('');
+$('makeResults').onclick = () => {
+  const out = ['Cue audio prototype results', `Device: ${navigator.userAgent}`, ''];
+  QUESTIONS.forEach((q, qi) => out.push(`${q}: ` + Object.keys(ENGINES).map(k => `${ENGINES[k].split(':')[0]}=${$(`a-${qi}-${k}`).value}`).join(', ')));
+  out.push('', `Notes: ${$('notes').value || '-'}`, '', 'Event log:', ...lines);
+  const r = $('results'); r.hidden = false; r.value = out.join('\n'); r.focus(); r.select();
+};
+log('Page loaded');
+render();
+</script>
+</body>
+</html>
